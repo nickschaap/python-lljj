@@ -51,7 +51,7 @@ def fourDotProduct(particle1, particle2) :
 # the second argument. Or if there are more than 2
 # arguments.
 if(len(sys.argv) != 2) :
-    print 'Usage: python analysis.py <filename>'
+    print('Usage: python analysis.py <filename>')
     sys.exit()
 
 
@@ -71,5 +71,5 @@ for line in file:
         particle = Particle(currEvent, data)
         currEvent.addFinalStateParticle(particle)
 
-
+print(events[0].particles[0].px)
 
