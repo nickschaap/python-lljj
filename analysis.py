@@ -1,6 +1,8 @@
 import sys
 import math
 import itertools
+from ROOT import TCanvas, TPad, TFile, TPaveLabel, TPaveText, TH1F
+from ROOT import gROOT
 
 ########## PID DICTIONARY ##########
 pids = { "PIDu": 2, "PIDubar" : -2, "PIDd" : 1, "PIDdbar" : -1, "PIDs" : 3, "PIDsbar" : -3, "PIDc" : 4,
@@ -182,8 +184,8 @@ def fourLengthSq(particle) :
 # Exits the program if no lhco file is passed in as
 # the second argument. Or if there are more than 2
 # arguments.
-if(len(sys.argv) != 2) :
-    print('Usage: python analysis.py <filename>')
+if(len(sys.argv) != 3) :
+    print('Usage: python analysis.py <filename> <filename>')
     sys.exit()
 
 
@@ -203,21 +205,50 @@ for line in file :
     elif(data[0] != "#") :
         particle = Particle(currEvent, data)
         currEvent.addFinalStateParticle(particle)
-
-# events[25].selectionCut()
+events.append(currEvent)
 
 for event in events :
     event.selectionCut()
 
-f = open("output.txt", "w")
+bkevents = []
+bkfile = open(sys.argv[2], "r")
+bkcurrEvent = None
 
-eventCount = 0
-index = 0
+for line in bkfile :
+    data = line.split()
+    if(data[0] == "0") :
+        if(bkcurrEvent != None) :
+            bkevents.append(bkcurrEvent)
+        bkcurrEvent = Event(data)
+    elif(data[0] != "#") :
+        particle = Particle(bkcurrEvent, data)
+        bkcurrEvent.addFinalStateParticle(particle)
+bkevents.append(bkcurrEvent)
+
+
+for event in bkevents :
+    event.selectionCut()
+canvas = TCanvas('METs')
+example = TFile( 'analysis.root', 'RECREATE' )
+histo1 = TH1F('MET', 'MET', 100, 0, 1000)
+histo2 = TH1F('METBK', 'MET', 100, 0, 1000)
+
 for event in events :
-    index = index + 1
-    if(event.keep) :
-        eventCount = eventCount + 1
-        f.write(str(index) + '\n')
+    if(event.keep and event.METfind[0].pt > 150) :
+        histo1.Fill(event.METfind[0].pt)
+norm = histo1.GetEntries()
+histo1.Scale(1/norm)
 
+for event in bkevents :
+    if(event.keep and event.METfind[0].pt > 150) :
+        histo2.Fill(event.METfind[0].pt, 1)
+norm = histo2.GetEntries()
+histo2.Scale(1/norm)
 
+histo1.SetLineColor(2)
+histo1.Draw()
 
+histo2.SetLineColor(1)
+histo2.Draw('same')
+canvas.Update()
+example.Write()

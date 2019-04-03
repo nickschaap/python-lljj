@@ -12,9 +12,9 @@ pad3.Draw()
 #
 # We connect the ROOT file generated in a previous tutorial
 #
-example = TFile( 'py-hsimple.root' )
+example = TFile( 'py-hsimple.root', 'RECREATE' )
 example.ls()
-
+ 
 # Draw a global picture title
 title = TPaveLabel( 0.1, 0.94, 0.9, 0.98,
                     'Drawing options for one dimensional histograms' )
