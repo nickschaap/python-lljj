@@ -1,7 +1,7 @@
 import sys
 import math
 import itertools
-from ROOT import TCanvas, TPad, TFile, TPaveLabel, TPaveText, TH1F
+from ROOT import TCanvas, TPad, TFile, TPaveLabel, TPaveText, TH1F, THStack, TImage
 from ROOT import gROOT
 
 ########## PID DICTIONARY ##########
@@ -103,6 +103,7 @@ class Particle:
         self.phi = float(data[3])
         self.pt = float(data[4])
         self.jmas = float(data[5])
+        
         self.ntrk = float(data[6])
         self.btag = float(data[7])
         self.hadem = float(data[8])
@@ -120,7 +121,10 @@ class Particle:
         
         self.theta = float(2 * math.atan(math.exp(-self.eta)))
         self.pz = float(self.pt / math.tan(self.theta))
-        self.p = float(math.sqrt(math.pow(self.px, 2) + math.pow(self.py, 2) + math.pow(self.pz, 2)))
+        self.p2 = float(math.pow(self.px, 2) + math.pow(self.py, 2) + math.pow(self.pz, 2))
+        self.p = float(math.sqrt(self.p2))
+
+        self.jmas = math.sqrt(math.pow(self.jmas,2) + self.p2)
         pid = None
         if (self.typ == 0) :
             pid = 22
@@ -177,78 +181,124 @@ def etaOf(particle) :
 def fourLength(particle) :
     return math.sqrt(math.pow(particle.jmas, 2) - math.pow(particle.pz, 2) - math.pow(particle.py, 2) - math.pow(particle.px, 2))
 
+def fourLengthVec(vector) :
+    return math.sqrt(math.pow(vector[0], 2) - math.pow(vector[1], 2) - math.pow(vector[2], 2) - math.pow(vector[3], 2))
+
 def fourLengthSq(particle) :
     return math.pow(particle.jmas, 2) - math.pow(particle.pz, 2) - math.pow(particle.py, 2) - math.pow(particle.px, 2)
+
+
+def eventCount(events) :
+    return len(list(filter(lambda x: x.keep, events)))
 
 ########## MAIN FUNCTIONS ##########
 # Exits the program if no lhco file is passed in as
 # the second argument. Or if there are more than 2
 # arguments.
-if(len(sys.argv) != 3) :
-    print('Usage: python analysis.py <filename> <filename>')
+if(len(sys.argv) != 4) :
+    print('Usage: python analysis.py <signal> <background> <background2>')
     sys.exit()
 
 
 
 # Reads in LHCO File and creates Event and Particle
 # objects accordingly. The events list is updated accordingly.
-events = []
-file = open(sys.argv[1], "r")
-currEvent = None
+def readFileAndPresel(file) :
+    events = []
+    file = open(file, "r")
+    currEvent = None
+    for line in file :
+        data = line.split()
+        if(data[0] == "0") :
+            if(currEvent != None) :
+                currEvent.selectionCut()
+                events.append(currEvent)
+            currEvent = Event(data)
+        elif(data[0] != "#") :
+            particle = Particle(currEvent, data)
+            currEvent.addFinalStateParticle(particle)
+    currEvent.selectionCut()
+    events.append(currEvent)
+    return events
 
-for line in file :
-    data = line.split()
-    if(data[0] == "0") :
-        if(currEvent != None) :
-            events.append(currEvent)
-        currEvent = Event(data)
-    elif(data[0] != "#") :
-        particle = Particle(currEvent, data)
-        currEvent.addFinalStateParticle(particle)
-events.append(currEvent)
+def showEvents(signal, background, cutVar, cutFunc) :
+    canvas = TCanvas(cutVar,cutVar,10,10,500,500)
+    histo1 = TH1F(cutVar + '_SIGNAL', cutVar, 100, 0, 1000)
+    histo2 = TH1F(cutVar + '_BACKGROUND', cutVar, 100, 0, 1000)
+    for event in signal :
+        if(event.keep) :
+            histo1.Fill(cutFunc(event))
+    for event in background :
+        if(event.keep) :
+            histo2.Fill(cutFunc(event))
+    histo1.SetLineColor(2)
+    histo2.SetLineColor(1)
+    histo2.DrawNormalized()
+    histo1.DrawNormalized('same')
+    canvas.Update()
+    canvas.Write()
 
-for event in events :
-    event.selectionCut()
+def addCut(signal, background, cutFunc, min, max) :
+    for event in signal :
+        if(event.keep and cutFunc(event) >= min and cutFunc(event) <= max) :
+            event.keep = True
+        else :
+            event.keep = False
+    for event in background :
+        if(event.keep and cutFunc(event) >= min and cutFunc(event) <= max) :
+            event.keep = True
+        else :
+            event.keep = False
 
-bkevents = []
-bkfile = open(sys.argv[2], "r")
-bkcurrEvent = None
+signal = readFileAndPresel(sys.argv[1])
+background = readFileAndPresel(sys.argv[2])
+background2 =  readFileAndPresel(sys.argv[3])
 
-for line in bkfile :
-    data = line.split()
-    if(data[0] == "0") :
-        if(bkcurrEvent != None) :
-            bkevents.append(bkcurrEvent)
-        bkcurrEvent = Event(data)
-    elif(data[0] != "#") :
-        particle = Particle(bkcurrEvent, data)
-        bkcurrEvent.addFinalStateParticle(particle)
-bkevents.append(bkcurrEvent)
+def invJJ(event) :
+    p1 = event.jetfind[0].fourVector()
+    p2 = event.jetfind[1].fourVector()
+    p3 = (p1[0]+p2[0], p1[1]+p2[1], p1[2]+p2[2], p1[3]+p2[3])
+    print(p3)
+    return fourLengthVec(p3)
 
 
-for event in bkevents :
-    event.selectionCut()
-canvas = TCanvas('METs')
-example = TFile( 'analysis.root', 'RECREATE' )
-histo1 = TH1F('MET', 'MET', 100, 0, 1000)
-histo2 = TH1F('METBK', 'MET', 100, 0, 1000)
+rootfile = TFile( 'analysis.root', 'RECREATE' )
+# addCut(signal, background + background2, lambda x: invJJ(x), 0, 150)
+showEvents(signal, background + background2, 'Mjj', lambda x: invJJ(x))
 
-for event in events :
-    if(event.keep and event.METfind[0].pt > 150) :
-        histo1.Fill(event.METfind[0].pt)
-norm = histo1.GetEntries()
-histo1.Scale(1/norm)
 
-for event in bkevents :
-    if(event.keep and event.METfind[0].pt > 150) :
-        histo2.Fill(event.METfind[0].pt, 1)
-norm = histo2.GetEntries()
-histo2.Scale(1/norm)
+addCut(signal, background + background2, lambda x: x.METfind[0].pt, 150, 100000)
+showEvents(signal, background + background2, 'MET', lambda x: x.METfind[0].pt)
 
-histo1.SetLineColor(2)
-histo1.Draw()
+def invLL(event) :
+    p1 = event.lepfind[0].fourVector()
+    p2 = event.lepfind[1].fourVector()
+    p3 = (p1[0]+p2[0], p1[1]+p2[1], p1[2]+p2[2], p1[3]+p2[3])
+    return fourLengthVec(p3)
 
-histo2.SetLineColor(1)
-histo2.Draw('same')
-canvas.Update()
-example.Write()
+
+
+
+
+addCut(signal, background + background2, lambda x: invLL(x), 150, 100000)
+showEvents(signal, background + background2, 'Mll', lambda x: invLL(x))
+
+
+
+def getSignificance(signal, background) :
+    weightSig = 1.01*math.pow(10,-4)*3000*math.pow(10,3)/10000
+    weightBK = 2.7*math.pow(10,-3)*3000*math.pow(10,3)/10000
+    weightBK2 = 0.0147*3000*math.pow(10,3)/10000
+    S = eventCount(signal) * weightSig
+    print(S)
+    B = eventCount(background) * weightBK
+    print(B)
+    B2 = eventCount(background2) * weightBK2
+    print(B2)
+    print('Significance: ', S/math.sqrt(S+ B + B2))
+
+print('Signal: ', eventCount(signal))
+print('Background: ', eventCount(background))
+print('Background 2: ', eventCount(background2))
+getSignificance(signal, background)
+rootfile.Write()
