@@ -26,6 +26,7 @@ class Event:
         self.eventNum = int(header[1])
         self.particles = []
         self.keep = True
+        self.cut = False
 
     def addFinalStateParticle(self, particle) :
         self.particles.append(particle)
@@ -189,7 +190,7 @@ def fourLengthSq(particle) :
 
 
 def eventCount(events) :
-    return len(list(filter(lambda x: x.keep, events)))
+    return len(list(filter(lambda x: x.keep and not x.cut, events)))
 
 ########## MAIN FUNCTIONS ##########
 # Exits the program if no lhco file is passed in as
@@ -221,38 +222,57 @@ def readFileAndPresel(file) :
     events.append(currEvent)
     return events
 
-def showEvents(signal, background, cutVar, cutFunc) :
+# def showEvents(signal, background, cutVar, cutFunc) :
+#     canvas = TCanvas(cutVar,cutVar,10,10,500,500)
+#     histo1 = TH1F(cutVar + '_SIGNAL', cutVar, 100, 0, 1000)
+#     histo2 = TH1F(cutVar + '_BACKGROUND', cutVar, 100, 0, 1000)
+#     for event in signal :
+#         if(event.keep) :
+#             histo1.Fill(cutFunc(event))
+#     for event in background :
+#         if(event.keep) :
+#             histo2.Fill(cutFunc(event))
+#     histo1.SetLineColor(2)
+#     histo2.SetLineColor(1)
+#     histo2.DrawNormalized()
+#     histo1.DrawNormalized('same')
+#     canvas.Update()
+#     canvas.Write()
+
+def showEvents(eventLists, cutVar, cutFunc, showAll) :
     canvas = TCanvas(cutVar,cutVar,10,10,500,500)
-    histo1 = TH1F(cutVar + '_SIGNAL', cutVar, 100, 0, 1000)
-    histo2 = TH1F(cutVar + '_BACKGROUND', cutVar, 100, 0, 1000)
-    for event in signal :
-        if(event.keep) :
-            histo1.Fill(cutFunc(event))
-    for event in background :
-        if(event.keep) :
-            histo2.Fill(cutFunc(event))
-    histo1.SetLineColor(2)
-    histo2.SetLineColor(1)
-    histo2.DrawNormalized()
-    histo1.DrawNormalized('same')
+    currhisto = None
+    count = 1
+    for eventList in eventLists :
+        currhisto = TH1F(cutVar + '_' + str(count), cutVar, 100, 0, 1000)
+        for event in eventList :
+            if(event.keep and (showAll or not event.cut)) :
+                currhisto.Fill(cutFunc(event))
+        count = count + 1
+        currhisto.SetLineColor(count)
+        if (count == 1) :
+            currhisto.DrawNormalized()
+        else :
+            currhisto.DrawNormalized('same')
     canvas.Update()
     canvas.Write()
 
-def addCut(signal, background, cutFunc, min, max) :
-    for event in signal :
-        if(event.keep and cutFunc(event) >= min and cutFunc(event) <= max) :
-            event.keep = True
-        else :
-            event.keep = False
-    for event in background :
-        if(event.keep and cutFunc(event) >= min and cutFunc(event) <= max) :
-            event.keep = True
-        else :
-            event.keep = False
+def addCut(eventLists, cutFunc, min, max) :
+    for eventList in eventLists :
+        for event in eventList :
+            if(event.keep) :
+                cut = cutFunc(event)
+                if(cut >= min and cut <= max) :
+                    event.cut = False
+                else :
+                    event.cut = True
+            else :
+                event.cut = True
 
 signal = readFileAndPresel(sys.argv[1])
 background = readFileAndPresel(sys.argv[2])
-background2 =  readFileAndPresel(sys.argv[3])
+background2 = readFileAndPresel(sys.argv[3])
+allEvents = [signal, background, background2]
 
 def invJJ(event) :
     p1 = event.jetfind[0].fourVector()
@@ -264,12 +284,14 @@ def invJJ(event) :
 
 rootfile = TFile( 'analysis.root', 'RECREATE' )
 # addCut(signal, background + background2, lambda x: invJJ(x), 0, 150)
-showEvents(signal, background + background2, 'Mjj', lambda x: invJJ(x))
+# showEvents(allEvents, 'Mjj', lambda x: invJJ(x), False)
 
 
-addCut(signal, background + background2, lambda x: x.METfind[0].pt, 150, 100000)
-showEvents(signal, background + background2, 'MET', lambda x: x.METfind[0].pt)
+# MET Cut
+addCut(allEvents, lambda x: x.METfind[0].pt, 175, 100000)
+showEvents(allEvents, 'MET', lambda x: x.METfind[0].pt, True)
 
+# Mll Cut
 def invLL(event) :
     p1 = event.lepfind[0].fourVector()
     p2 = event.lepfind[1].fourVector()
@@ -277,12 +299,12 @@ def invLL(event) :
     return fourLengthVec(p3)
 
 
+addCut(allEvents, lambda x: invLL(x), 175, 100000)
+showEvents(allEvents, 'Mll', lambda x: invLL(x), True)
 
-
-
-addCut(signal, background + background2, lambda x: invLL(x), 150, 100000)
-showEvents(signal, background + background2, 'Mll', lambda x: invLL(x))
-
+# Ptl Cut
+addCut(allEvents, lambda x: ptOf(x.lepfind[0]), 200, 100000)
+showEvents(allEvents, 'Ptl', lambda x: ptOf(x.lepfind[0]), True)
 
 
 def getSignificance(signal, background) :
